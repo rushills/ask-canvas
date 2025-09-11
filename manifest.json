@@ -1,0 +1,11 @@
+{
+	"id": "ask-canvas",
+	"name": "Ask Canvas",
+	"version": "0.0.3",
+	"minAppVersion": "0.15.0",
+	"description": "Adds AI possibilities to Obsidian Canvas.",
+	"author": "Alexey Rubtsov",
+	"authorUrl": "https://obsidian.md",
+	"fundingUrl": "https://obsidian.md/pricing",
+	"isDesktopOnly": false
+}

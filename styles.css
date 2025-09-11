@@ -1,0 +1,33 @@
+/*
+
+This CSS file will be included with your plugin, and
+available in the app when your plugin is enabled.
+
+If your plugin does not need CSS, delete this file.
+
+*/
+
+/* Simple spinner for status bar progress */
+.ask-canvas-spinner {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid var(--text-muted);
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  animation: ask-canvas-spin 0.9s linear infinite;
+  vertical-align: -0.1em;
+}
+
+@keyframes ask-canvas-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Keep plugin UI visible but disabled when Canvas isn't active */
+.smart-canvas-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+  cursor: not-allowed !important;
+  filter: grayscale(15%);
+}
