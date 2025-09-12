@@ -31,3 +31,51 @@ If your plugin does not need CSS, delete this file.
   cursor: not-allowed !important;
   filter: grayscale(15%);
 }
+
+/* Suggestion list styling (FuzzySuggestModal) */
+.ask-canvas-suggestion-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.ask-canvas-suggestion-left {
+  font-weight: 600;
+}
+.ask-canvas-suggestion-right {
+  opacity: 0.6;
+  margin-left: 12px;
+}
+.ask-canvas-suggestion-snippet {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+.ask-canvas-suggestion-hint {
+  font-size: 0.8em;
+  margin-top: 4px;
+}
+
+/* Status bar */
+.ask-canvas-status-label {
+  margin-right: 6px;
+}
+.status-bar-item.ask-canvas-busy {
+  pointer-events: none;
+}
+
+/* Modals & settings */
+.ask-canvas-btn-row {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+}
+.ask-canvas-btn-cancel {
+  margin-left: 8px;
+}
+.ask-canvas-question-textarea,
+.ask-canvas-settings-textarea {
+  width: 100%;
+  height: 8em;
+}

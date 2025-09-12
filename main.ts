@@ -387,26 +387,14 @@ export default class CanvasAskPlugin extends Plugin {
         });
       }
       renderSuggestion(match: FuzzyMatch<Item>, el: HTMLElement) {
-        const top = el.createEl("div");
-        top.style.display = "flex";
-        top.style.justifyContent = "space-between";
-        const left = top.createEl("div", { text: match.item.file.basename });
-        left.style.fontWeight = "600";
-        const right = top.createEl("div", { text: String(match.item.score) });
-        right.style.opacity = "0.6";
-        right.style.marginLeft = "12px";
+        const top = el.createEl("div", { cls: "ask-canvas-suggestion-top" });
+        const left = top.createEl("div", { text: match.item.file.basename, cls: "ask-canvas-suggestion-left" });
+        const right = top.createEl("div", { text: String(match.item.score), cls: "ask-canvas-suggestion-right" });
         el.createEl("div", { text: match.item.file.path, cls: "mod-muted" });
         if (match.item.snippet) {
-          const sn = el.createEl("div", { text: match.item.snippet.trim() });
-          sn.style.whiteSpace = "nowrap";
-          sn.style.overflow = "hidden";
-          sn.style.textOverflow = "ellipsis";
-          sn.style.opacity = "0.85";
-          sn.style.marginTop = "2px";
+          el.createEl("div", { text: match.item.snippet.trim(), cls: "ask-canvas-suggestion-snippet" });
         }
-        const hint = el.createEl("div", { text: "Enter: open • Shift+Enter or Shift+Click: add to canvas", cls: "mod-muted" });
-        hint.style.fontSize = "0.8em";
-        hint.style.marginTop = "4px";
+        el.createEl("div", { text: "Enter: open • Shift+Enter or Shift+Click: add to canvas", cls: "mod-muted ask-canvas-suggestion-hint" });
       }
       async onChooseItem(it: Item, evt?: MouseEvent | KeyboardEvent) {
         const shift = !!(evt && (evt as KeyboardEvent).shiftKey);
@@ -467,7 +455,7 @@ export default class CanvasAskPlugin extends Plugin {
         try {
           // Prefer cached title/aliases/headings first
           // @ts-ignore metadataCache exists on App
-          const cache = this.app.metadataCache.getFileCache(af as TFile);
+          const cache = this.app.metadataCache.getFileCache(af);
           const parts: string[] = [];
           const fmTitle = cache?.frontmatter?.title;
           if (typeof fmTitle === 'string') parts.push(fmTitle);
@@ -507,7 +495,7 @@ export default class CanvasAskPlugin extends Plugin {
     const res: Array<{ file: TFile; score: number }> = [];
     for (const f of files) {
       // @ts-ignore metadataCache exists on App
-      const cache = this.app.metadataCache.getFileCache(f as TFile) || {};
+      const cache = this.app.metadataCache.getFileCache(f) || {};
       let score = 0;
       const fm: any = cache.frontmatter as any | undefined;
       const title = (fm?.title as string) || f.basename || f.name.replace(/\.[^/.]+$/, "");
@@ -698,17 +686,16 @@ ${context.sourcesMarkdown}
 
     if (busy) {
       // Label + spinner
-      const label = el.createEl("span", { text: "Ask↑" });
-      label.style.marginRight = "6px";
+      const label = el.createEl("span", { text: "Ask↑", cls: "ask-canvas-status-label" });
       const spinner = el.createEl("span");
       spinner.classList.add("ask-canvas-spinner");
       el.setAttribute("aria-busy", "true");
-      el.style.pointerEvents = "none"; // stop reacting to clicks
+      el.classList.add("ask-canvas-busy");
       el.setAttribute("title", "Ask Canvas: Asking…");
     } else {
       el.setText("Ask↑");
       el.setAttribute("title", "Ask Canvas: Ask (Upstream Context)");
-      el.style.pointerEvents = "";
+      el.classList.remove("ask-canvas-busy");
       el.removeAttribute("aria-busy");
     }
 
@@ -852,21 +839,17 @@ ${context.sourcesMarkdown}
           contentEl.empty();
           contentEl.createEl("h2", { text: "Ask a question" });
 
-          const textarea = contentEl.createEl("textarea");
-          textarea.style.width = "100%";
-          textarea.style.height = "8em";
+          const textarea = contentEl.createEl("textarea", { cls: "ask-canvas-question-textarea" });
           // Open with an empty value; show suggestion as placeholder
           textarea.value = "";
           if (this.value) textarea.placeholder = this.value;
 
-          const btnRow = contentEl.createEl("div");
-          btnRow.style.marginTop = "12px";
+          const btnRow = contentEl.createEl("div", { cls: "ask-canvas-btn-row" });
 
           const askBtn = btnRow.createEl("button", { text: "Ask" });
           // Make Ask button primary for visual distinction
           askBtn.classList.add("mod-cta");
-          const cancelBtn = btnRow.createEl("button", { text: "Cancel" });
-          cancelBtn.style.marginLeft = "8px";
+          const cancelBtn = btnRow.createEl("button", { text: "Cancel", cls: "ask-canvas-btn-cancel" });
 
           askBtn.addEventListener("click", () => {
             const q = textarea.value.trim();
@@ -1635,9 +1618,7 @@ class CanvasAskSettingsTab extends PluginSettingTab {
       const s = new Setting(containerEl)
         .setName("System prompt")
         .setDesc("System message sent with each API call. Leave blank to use the default.");
-      const area = s.controlEl.createEl('textarea');
-      area.style.width = '100%';
-      area.style.height = '8em';
+      const area = s.controlEl.createEl('textarea', { cls: 'ask-canvas-settings-textarea' });
       area.setAttr('spellcheck', 'false');
       area.placeholder = DEFAULT_SYSTEM_PROMPT;
       area.value = this.plugin.settings.systemPrompt || '';
@@ -1697,7 +1678,7 @@ async function readFrontTitleOrH1(app: App, path: string): Promise<string | null
   // Prefer metadataCache frontmatter title if available (safe for large files)
   try {
     // @ts-ignore metadataCache exists on App
-    const cache = app.metadataCache.getFileCache(af as TFile);
+    const cache = app.metadataCache.getFileCache(af);
     const fmTitle = cache?.frontmatter?.title;
     if (typeof fmTitle === "string" && fmTitle.trim()) return fmTitle.trim();
   } catch {
