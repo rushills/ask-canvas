@@ -1,7 +1,7 @@
 {
 	"id": "ask-canvas",
 	"name": "Ask Canvas",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"minAppVersion": "0.15.0",
 	"description": "Adds AI possibilities to Canvas.",
 	"author": "Alexey Rubtsov",
