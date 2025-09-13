@@ -1,6 +1,6 @@
 import {
   App, Notice, Plugin, PluginSettingTab, Setting, TFile, FuzzySuggestModal, Modal, normalizePath,
-  FuzzyMatch, requestUrl
+  FuzzyMatch, requestUrl, RequestUrlResponse
 } from "obsidian";
 
 /** ---------- JSON Canvas Types ---------- */
@@ -14,10 +14,10 @@ interface CanvasNode {
   y: number;
   width: number;
   height: number;
-  text?: any;   // Canvas may store text as string or object ({text|content|source})
-  file?: any;   // Canvas may store file ref as string or object ({path})
-  url?: any;    // Canvas may store url as string or object
-  label?: any;  // Canvas may store label as string or object
+  text?: unknown;   // Canvas may store text as string or object ({text|content|source})
+  file?: unknown;   // Canvas may store file ref as string or object ({path})
+  url?: unknown;    // Canvas may store url as string or object
+  label?: unknown;  // Canvas may store label as string or object
   color?: string;
 }
 
@@ -127,17 +127,19 @@ function truncateWords(input: string | undefined | null, maxWords: number): stri
 const DEFAULT_LABEL_WORDS = 12;
 
 // Lightweight debounce utility for batching saves
-function debounce<T extends (...args: any[]) => any>(fn: T, wait = 300) {
+type Debounced<T extends (...args: unknown[]) => unknown> = ((...args: Parameters<T>) => void) & { cancel: () => void };
+function debounce<T extends (...args: unknown[]) => unknown>(fn: T, wait = 300): Debounced<T> {
   let t: number | null = null;
-  const debounced = (...args: Parameters<T>) => {
+  const wrapped = ((...args: Parameters<T>) => {
     if (t != null) window.clearTimeout(t);
     t = window.setTimeout(() => {
       t = null;
-      fn(...args);
+      // eslint-disable-next-line @typescript-eslint/ban-types
+      (fn as Function)(...args as unknown[]);
     }, wait);
-  };
-  (debounced as any).cancel = () => { if (t != null) { window.clearTimeout(t); t = null; } };
-  return debounced as T & { cancel: () => void };
+  }) as Debounced<T>;
+  wrapped.cancel = () => { if (t != null) { window.clearTimeout(t); t = null; } };
+  return wrapped;
 }
 
 // Simple sleep helper used for retry backoff
@@ -146,8 +148,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 // Sanitize text for logging/errors: collapse whitespace and truncate
-function sanitizeForLog(input: any, max = 300): string {
-  const s = String(input ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+function sanitizeForLog(input: unknown, max = 300): string {
+  const s = String((input as unknown) ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
@@ -163,7 +165,9 @@ function escapeRegex(s: string): string {
 
 // Determine a reasonable concurrency based on hardware
 function getConcurrency(preferred: number): number {
-  const hc = (typeof navigator !== 'undefined' && (navigator as any)?.hardwareConcurrency) ? Number((navigator as any).hardwareConcurrency) : NaN;
+  const hc = (typeof navigator !== 'undefined')
+    ? Number((navigator as unknown as { hardwareConcurrency?: number }).hardwareConcurrency ?? NaN)
+    : NaN;
   if (Number.isFinite(hc) && hc > 0) {
     // Cap within [2, 2x cores] and not above preferred
     return Math.max(2, Math.min(preferred, Math.max(2, Math.min(2 * hc, 16))));
@@ -193,22 +197,25 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit = 6):
   New helpers: Canvas node fields can be strings or objects depending on Canvas versions.
   These helpers normalize common shapes so labels don't end up as "undefined".
 */
-function extractTextField(t: any): string {
+function isRecord(v: unknown): v is Record<string, unknown> { return typeof v === 'object' && v !== null; }
+function extractTextField(t: unknown): string {
   if (!t) return "";
   if (typeof t === "string") return t;
-  if (typeof t === "object") {
+  if (isRecord(t)) {
     // common possibilities
-    return String(t.text ?? t.content ?? t.source ?? "");
+    const cand = (t as { text?: unknown; content?: unknown; source?: unknown });
+    return String(cand.text ?? cand.content ?? cand.source ?? "");
   }
   return "";
 }
 
 // Canvas may store file refs as string or as an object { path }
-function resolveFilePath(f: any): string {
+function resolveFilePath(f: unknown): string {
   if (!f) return "";
   if (typeof f === 'string') return f;
-  if (typeof f === 'object') {
-    const p = (f as any).path ?? (f as any).file; // be permissive
+  if (isRecord(f)) {
+    const cand = f as { path?: unknown; file?: unknown };
+    const p = (typeof cand.path === 'string' ? cand.path : undefined) ?? (typeof cand.file === 'string' ? cand.file : undefined);
     return typeof p === 'string' ? p : "";
   }
   return "";
@@ -340,7 +347,7 @@ export default class CanvasAskPlugin extends Plugin {
     }
     // Exclude the canvas itself and (if applicable) the selected file-node itself
     const selectedFilePath = (selected.type === "file")
-      ? normalizePath(resolveFilePath((selected as any).file))
+      ? normalizePath(resolveFilePath(selected.file))
       : "";
     const toShow = Math.max(3, Math.min(12, this.settings.topRelatedResults || DEFAULTS.topRelatedResults));
     const finalList = Array.from(merged.values())
@@ -372,14 +379,16 @@ export default class CanvasAskPlugin extends Plugin {
         // Ensure Shift+Enter also triggers selection and marks it as an "add to canvas" action
         this.scope.register(["Shift"], "Enter", (ev) => {
           try {
-            const chooser: any = (this as any).chooser;
-            const idx: number = chooser?.selectedItem;
-            const arr: any[] = chooser?.values;
-            const entry = arr && typeof idx === 'number' ? arr[idx] : null;
+            type ChooserEntry<T> = { item?: T };
+            type WithChooser<T> = { chooser?: { selectedItem?: number; values?: Array<ChooserEntry<T>> } };
+            const chooser = (this as unknown as WithChooser<Item>).chooser;
+            const idx: number | undefined = chooser?.selectedItem;
+            const arr = chooser?.values ?? [];
+            const entry = (typeof idx === 'number' && idx >= 0) ? arr[idx] : undefined;
             const item: Item | undefined = entry?.item;
             if (!item) return;
             // Call the same handler with a synthetic KeyboardEvent carrying shiftKey=true
-            const fakeEvt = new KeyboardEvent('keydown', { shiftKey: true }) as any;
+            const fakeEvt = new KeyboardEvent('keydown', { shiftKey: true });
             this.onChooseItem(item, fakeEvt);
           } catch (e) {
             console.error('Shift+Enter handler failed', e);
@@ -437,8 +446,8 @@ export default class CanvasAskPlugin extends Plugin {
   }
 
   private firstLineForNode(n: CanvasNode): string {
-    if (n.type === "text") return firstLine(extractTextField((n as any).text));
-    if (n.type === "file") return resolveFilePath((n as any).file);
+    if (n.type === "text") return firstLine(extractTextField(n.text));
+    if (n.type === "file") return resolveFilePath(n.file);
     return getNodeLabel(n);
   }
 
@@ -447,7 +456,7 @@ export default class CanvasAskPlugin extends Plugin {
   }
 
   private async getSearchTextFromNode(n: CanvasNode): Promise<string> {
-    if (n.type === "text") return extractTextField((n as any).text) ?? "";
+    if (n.type === "text") return extractTextField(n.text) ?? "";
     if (n.type === "file" && n.file) {
       const path = resolveFilePath(n.file);
       const af = this.app.vault.getAbstractFileByPath(path);
@@ -457,11 +466,16 @@ export default class CanvasAskPlugin extends Plugin {
           // @ts-ignore metadataCache exists on App
           const cache = this.app.metadataCache.getFileCache(af);
           const parts: string[] = [];
-          const fmTitle = cache?.frontmatter?.title;
+          const fmTitle = (cache?.frontmatter as Record<string, unknown> | undefined)?.title as string | undefined;
           if (typeof fmTitle === 'string') parts.push(fmTitle);
-          const aliases = cache?.frontmatter?.aliases;
+          const aliases = (cache?.frontmatter as Record<string, unknown> | undefined)?.aliases as unknown;
           if (Array.isArray(aliases)) parts.push(...aliases.map(String));
-          const headings = cache?.headings?.map((h: any) => String(h.heading)) ?? [];
+          const headings = Array.isArray(cache?.headings)
+            ? (cache!.headings as unknown[]).map(h => {
+                const hh = (h as { heading?: unknown })?.heading;
+                return String(hh ?? '');
+              })
+            : [];
           parts.push(...headings);
           // Fallback: read first portion of content
           const content = await this.app.vault.read(af);
@@ -497,10 +511,12 @@ export default class CanvasAskPlugin extends Plugin {
       // @ts-ignore metadataCache exists on App
       const cache = this.app.metadataCache.getFileCache(f) || {};
       let score = 0;
-      const fm: any = cache.frontmatter as any | undefined;
+      const fm = cache.frontmatter as Record<string, unknown> | undefined;
       const title = (fm?.title as string) || f.basename || f.name.replace(/\.[^/.]+$/, "");
-      const headings: string[] = (cache.headings?.map((h: any) => String(h.heading)) ?? []);
-      const aliasesSrc = fm?.aliases;
+      const headings: string[] = Array.isArray(cache.headings)
+        ? (cache.headings as unknown[]).map(h => String((h as { heading?: unknown })?.heading ?? ''))
+        : [];
+      const aliasesSrc = fm?.aliases as unknown;
       const aliases: string[] = Array.isArray(aliasesSrc) ? aliasesSrc.map(String) : [];
 
       const tagList: string[] = [];
@@ -509,9 +525,9 @@ export default class CanvasAskPlugin extends Plugin {
           if (t?.tag) tagList.push(String(t.tag).replace(/^#/, '').toLowerCase());
         }
       }
-      const fmTags = fm?.tags;
+      const fmTags = fm?.tags as unknown;
       if (typeof fmTags === 'string') tagList.push(...fmTags.split(/[,\s]+/).map((x: string) => x.replace(/^#/, '').toLowerCase()));
-      else if (Array.isArray(fmTags)) tagList.push(...fmTags.map((x: any) => String(x).replace(/^#/, '').toLowerCase()));
+      else if (Array.isArray(fmTags)) tagList.push(...fmTags.map((x: unknown) => String(x).replace(/^#/, '').toLowerCase()));
 
       const hayTitle = title.toLowerCase();
       for (const tok of tokens) {
@@ -634,12 +650,12 @@ export default class CanvasAskPlugin extends Plugin {
     try {
       answer = await this.callOpenAI(question, context, this.askAbortController.signal);
     } catch (err) {
-      if ((err as any)?.name === 'AbortError') {
-        // Swallow aborts as cancelations
-        console.warn('Ask canceled');
-        new Notice("Ask canceled.");
-      } else {
-        console.error(err);
+          if (err && typeof err === 'object' && (err as { name?: unknown }).name === 'AbortError') {
+            // Swallow aborts as cancelations
+            console.warn('Ask canceled');
+            new Notice("Ask canceled.");
+          } else {
+            console.error(err);
         new Notice("OpenAI request failed. See console for details.");
       }
     } finally {
@@ -889,7 +905,7 @@ ${context.sourcesMarkdown}
   /** Extract question from a node */
   private async getQuestionFromNode(n: CanvasNode): Promise<string | null> {
     if (n.type === "text") {
-      const q = firstLine(extractTextField((n as any).text));
+          const q = firstLine(extractTextField(n.text));
       return q || null;
     }
     if (n.type === "file" && n.file) {
@@ -965,7 +981,7 @@ ${context.sourcesMarkdown}
     for (const n of nodes) {
       if (n.type === "text") {
         tasks.push(async () => {
-          const raw = extractTextField((n as any).text);
+          const raw = extractTextField(n.text);
           const txt = raw.slice(0, this.settings.contextCharLimitPerNode);
           return { part: `### Text card (${n.id})\n${txt}`, sources: [`- Text card (${n.id})`] };
         });
@@ -1056,7 +1072,7 @@ Content
       return false;
     };
 
-    const parseRetryAfter = (val: any): number | null => {
+    const parseRetryAfter = (val: unknown): number | null => {
       if (!val) return null;
       const s = String(val).trim();
       // Seconds delta
@@ -1076,7 +1092,7 @@ Content
       attempt++;
       try {
         // Race the request with a timeout and external abort signal
-        const reqPromise = requestUrl({
+        const reqPromise: Promise<RequestUrlResponse> = requestUrl({
           url,
           method: "POST",
           headers,
@@ -1086,24 +1102,24 @@ Content
         const timeoutPromise = new Promise<never>((_, reject) => {
           const id = window.setTimeout(() => {
             const err = new Error("Request timed out");
-            (err as any).name = 'AbortError';
+            Object.defineProperty(err, 'name', { value: 'AbortError' });
             reject(err);
           }, requestTimeoutMs);
           if (signal) {
-            const onAbort = () => { window.clearTimeout(id); const e = new Error("Aborted"); (e as any).name = 'AbortError'; reject(e); };
+            const onAbort = () => { window.clearTimeout(id); const e = new Error("Aborted"); Object.defineProperty(e, 'name', { value: 'AbortError' }); reject(e); };
             signal.addEventListener('abort', onAbort, { once: true });
           }
         });
 
-        const res: any = await Promise.race([reqPromise, timeoutPromise]);
+        const response = await Promise.race<RequestUrlResponse>([reqPromise, timeoutPromise]);
 
         if (signal?.aborted) {
-          const e = new Error("Aborted"); (e as any).name = 'AbortError'; throw e;
+          const e = new Error("Aborted"); Object.defineProperty(e, 'name', { value: 'AbortError' }); throw e;
         }
 
-        const status: number = res?.status ?? 0;
+        const status: number = response?.status ?? 0;
         if (status < 200 || status >= 300) {
-          const bodyText: string = res?.text ?? '';
+          const bodyText: string = response?.text ?? '';
           // Attempt to parse a structured error for safer logging
           let errCode: string | undefined;
           let errMsg: string | undefined;
@@ -1114,7 +1130,7 @@ Content
           } catch { /* ignore */ }
           // Decide on retry using status and Retry-After
           if (attempt < maxAttempts && shouldRetry(status)) {
-            const retryAfterRaw = res?.headers?.['retry-after'] ?? res?.headers?.['Retry-After'];
+            const retryAfterRaw = (response.headers?.['retry-after'] ?? response.headers?.['Retry-After']);
             let delay = parseRetryAfter(retryAfterRaw) ?? Math.min(maxDelayMs, baseDelayMs * Math.pow(2, attempt - 1));
             // add jitter (+/-20%)
             const jitter = Math.round(delay * (Math.random() * 0.4 - 0.2));
@@ -1122,7 +1138,7 @@ Content
             await Promise.race([
               sleep(delay),
               new Promise<never>((_, reject) => {
-                if (signal) signal.addEventListener('abort', () => { const e = new Error("Aborted"); (e as any).name = 'AbortError'; reject(e); }, { once: true });
+                if (signal) signal.addEventListener('abort', () => { const e = new Error("Aborted"); Object.defineProperty(e, 'name', { value: 'AbortError' }); reject(e); }, { once: true });
               })
             ]);
             continue;
@@ -1133,20 +1149,20 @@ Content
         }
 
         // Success
-        let json: any;
-        try { json = res?.json ?? JSON.parse(res?.text ?? '{}'); } catch { json = {}; }
-        const text: string | undefined = json?.choices?.[0]?.message?.content?.trim();
+        let json: unknown;
+        try { json = (response as unknown as { json?: unknown; text?: string })?.json ?? JSON.parse(response?.text ?? '{}'); } catch { json = {}; }
+        const text: string | undefined = (json as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content?.trim();
         if (!text) throw new Error("No content returned from model.");
         return text;
-      } catch (err: any) {
-        if (err?.name === 'AbortError') throw err; // respect user cancellation/timeout
+      } catch (err: unknown) {
+        if (err && typeof err === 'object' && (err as { name?: unknown }).name === 'AbortError') throw err; // respect user cancellation/timeout
         if (attempt >= maxAttempts) throw err;
         // Unknown/network error: one more retry with backoff
         const delay = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 250);
         await Promise.race([
           sleep(delay),
           new Promise<never>((_, reject) => {
-            if (signal) signal.addEventListener('abort', () => { const e = new Error("Aborted"); (e as any).name = 'AbortError'; reject(e); }, { once: true });
+            if (signal) signal.addEventListener('abort', () => { const e = new Error("Aborted"); Object.defineProperty(e, 'name', { value: 'AbortError' }); reject(e); }, { once: true });
           })
         ]);
         continue;
@@ -1460,7 +1476,7 @@ Content
         });
       } else if (n.type === 'text') {
         tasks.push(async () => {
-          const raw = extractTextField((n as any).text);
+          const raw = extractTextField(n.text);
           if (raw && raw.length) {
             const quoted = raw.split(/\r?\n/).map(l => `> ${l}`).join('\n');
             return { part: quoted };
