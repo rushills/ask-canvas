@@ -99,6 +99,11 @@ You can always change system prompt to suit the task.
 
 ## Changelog
 
+- 0.0.4 — PR polish and UI tweaks
+  - Moved inline UI styles into CSS classes; improved suggestion list layout (title/score alignment, snippet ellipsis, hint styling) and consistent textarea sizing.
+  - Status bar busy state handled via CSS class; cleaned up label spacing and titles.
+  - Manifest cleanup to meet community guidelines (updated description; removed funding URL).
+  - Minor type-safety adjustments in metadata access.
 - 0.0.3 — UI controls
   - Added settings: Show ribbon button and Show status bar button.
   - Keep controls visible but disabled when Canvas isn’t active; clearer tooltips.
