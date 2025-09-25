@@ -6,7 +6,7 @@ Works on `.canvas` files in your vault. Requires an OpenAI-compatible API key.
 
 ## Features
 
-- Ask with upstream context: Select a node, automatically gather predecessors up to 3 hops, include the selected node’s content, and send a structured prompt to your model.
+- Ask with upstream context: Select a node, automatically gather predecessors up to a configurable hop limit (0–12, default 3), include the selected node’s content, and send a structured prompt to your model.
 - Automatic note creation: Saves the LLM answer as a Markdown file in your chosen folder, then adds it as a child node below the selected node with an edge labeled by your question.
 - Chain export: Export a chain of selected + upstream nodes and edges into a Markdown summary (includes content snippets).
 - Quick access: Ribbon icon and status bar item (`Ask↑`) to trigger the Ask flow; status bar shows a spinner while running.
@@ -29,6 +29,7 @@ Note: The separate “Open UI” command has been removed. Use the Ask command, 
 - Temperature: Sampling temperature for responses.
 - Max tokens: Max tokens for completions.
 - Context char limit per upstream node: Truncation limit per node when building context.
+- Upstream hop limit: Slider (0–12) controlling how many predecessor hops to add to the selected node when assembling context.
 - Output folder (optional): Relative to the vault root; blank writes alongside the canvas file.
 - Related results to show: Slider to choose how many related matches to display (3–12, default 8).
 
@@ -47,7 +48,7 @@ Note: The previous “fork instead of replace” behavior has been removed. Answ
 - File nodes: uses frontmatter `title`, first `# H1`, or filename.
 - Link nodes: label or URL.
 - Group nodes: group label.
-4) The plugin gathers upstream context (up to 3 hops) plus the selected node, calls your model, and saves the answer.
+4) The plugin gathers upstream context based on the hop limit slider (0–12) plus the selected node, calls your model, and saves the answer.
 5) A new Markdown note is created and added as a child file node connected to the selected node with the question as the edge label.
 
 ### Find Related Ideas
@@ -99,6 +100,9 @@ You can always change system prompt to suit the task.
 
 ## Changelog
 
+- 0.0.5 — Configurable context hop limit
+  - Added settings slider to choose how many predecessor hops (0–12) are included when building upstream context.
+  - Context gathering now respects the selected hop limit instead of the fixed three-hop chain.
 - 0.0.4 — PR polish and UI tweaks
   - Moved inline UI styles into CSS classes; improved suggestion list layout (title/score alignment, snippet ellipsis, hint styling) and consistent textarea sizing.
   - Status bar busy state handled via CSS class; cleaned up label spacing and titles.

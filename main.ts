@@ -40,6 +40,7 @@ interface CanvasAskSettings {
   temperature: number;
   maxTokens: number;
   contextCharLimitPerNode: number;
+  contextHopLimit: number;
   outputFolder: string;      // where to create the answer .md (relative to vault root)
   // When false (default), the plugin will not call the LLM API
   // or send any canvas content to an external service.
@@ -65,6 +66,7 @@ const DEFAULTS: CanvasAskSettings = {
   temperature: 0.2,
   maxTokens: 1200,
   contextCharLimitPerNode: 2000,
+  contextHopLimit: 3,
   outputFolder: "Ask Canvas", 
   allowApiCalls: false,
   topRelatedResults: 8,
@@ -628,7 +630,9 @@ export default class CanvasAskPlugin extends Plugin {
     }
 
     // 3) Collect upstream (multi-hop) context from the chosen root
-    const upstreamInfo = this.collectPredecessorsUpToDepth(data, root.id, 3);
+    const rawHopLimit = Number(this.settings.contextHopLimit);
+    const hopLimit = Math.max(0, Math.min(12, Number.isFinite(rawHopLimit) ? Math.round(rawHopLimit) : DEFAULTS.contextHopLimit));
+    const upstreamInfo = this.collectPredecessorsUpToDepth(data, root.id, hopLimit);
     const upstream = upstreamInfo.nodes;
 
     // Include the selected node itself (so a selected text card's content is part of the context)
@@ -1519,6 +1523,19 @@ class CanvasAskSettingsTab extends PluginSettingTab {
     const { containerEl } = this; containerEl.empty();
     containerEl.createEl("h2", { text: "Ask Canvas – Settings" });
 
+    const normalizeHopLimit = (value: unknown): number => {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return DEFAULTS.contextHopLimit;
+      return Math.max(0, Math.min(12, Math.round(num)));
+    };
+    const currentHopLimit = normalizeHopLimit(this.plugin.settings.contextHopLimit);
+    let hopLimitInfoEl: HTMLDivElement | null = null;
+    const updateApiContextSummary = (hopLimitValue: number) => {
+      if (hopLimitInfoEl) {
+        hopLimitInfoEl.textContent = `Context may include: text card contents, link URLs, and excerpts of referenced files up to ${this.plugin.settings.contextCharLimitPerNode} characters per node. Upstream hop limit: ${hopLimitValue}.`;
+      }
+    };
+
     // UI visibility toggles
     new Setting(containerEl)
       .setName("Show ribbon button")
@@ -1539,7 +1556,8 @@ class CanvasAskSettingsTab extends PluginSettingTab {
       const p1 = document.createElement('div');
       p1.textContent = "When ON, 'Active Canvas Query' will send the selected node and its upstream context to your configured LLM via API.";
       const p2 = document.createElement('div');
-      p2.textContent = `Context may include: text card contents, link URLs, and excerpts of referenced files up to ${this.plugin.settings.contextCharLimitPerNode} characters per node.`;
+      hopLimitInfoEl = p2;
+      updateApiContextSummary(currentHopLimit);
       const p3 = document.createElement('div');
       p3.textContent = "Default is OFF. Enable only if you are comfortable sending this data to your provider.";
       apiCallsDesc.appendChild(p1); apiCallsDesc.appendChild(p2); apiCallsDesc.appendChild(p3);
@@ -1663,7 +1681,25 @@ class CanvasAskSettingsTab extends PluginSettingTab {
       .addText(t => t
         .setPlaceholder(String(DEFAULTS.contextCharLimitPerNode))
         .setValue(String(this.plugin.settings.contextCharLimitPerNode))
-        .onChange((v) => { this.plugin.settings.contextCharLimitPerNode = Number(v) || DEFAULTS.contextCharLimitPerNode; this.plugin.scheduleSaveSettings(); }));
+        .onChange((v) => {
+          this.plugin.settings.contextCharLimitPerNode = Number(v) || DEFAULTS.contextCharLimitPerNode;
+          updateApiContextSummary(normalizeHopLimit(this.plugin.settings.contextHopLimit));
+          this.plugin.scheduleSaveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Upstream hop limit")
+      .setDesc("Maximum number of predecessor hops (0–12) to include alongside the selected node when building context.")
+      .addSlider(s => s
+        .setLimits(0, 12, 1)
+        .setDynamicTooltip()
+        .setValue(currentHopLimit)
+        .onChange((v) => {
+          const normalized = normalizeHopLimit(v);
+          this.plugin.settings.contextHopLimit = normalized;
+          updateApiContextSummary(normalized);
+          this.plugin.scheduleSaveSettings();
+        }));
 
     new Setting(containerEl)
       .setName("Output folder (optional)")
